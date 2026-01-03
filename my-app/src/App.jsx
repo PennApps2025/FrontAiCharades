@@ -73,7 +73,8 @@ function App() {
         // Use sendBeacon for reliable cleanup on page unload
         const formData = new FormData();
         formData.append("session_id", sessionId);
-        navigator.sendBeacon("http://localhost:8000/end_session", formData);
+        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        navigator.sendBeacon(`${apiUrl}/end_session`, formData);
       }
     };
 

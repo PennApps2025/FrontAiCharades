@@ -1,7 +1,11 @@
 import axios from "axios";
 
-// const BASE_URL = "https://backaicharades-q7oy.onrender.com"
-const BASE_URL = "http://localhost:8000";
+// Use environment variable for API URL
+// Development: http://localhost:8000
+// Production: your backend URL
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+console.log("🔗 API Base URL:", BASE_URL);
 
 // GET random word
 export const getRandomWord = async (category = null) => {
