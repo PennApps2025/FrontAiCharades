@@ -10,7 +10,7 @@ import EndScreen from "./components/EndScreen";
 import RoundIntro from "./components/RoundIntro";
 import Leaderboard from "./components/Leaderboard";
 
-import { getRandomWord, sendFrameToBackend, submitScore } from "./api/gameApi";
+import { getRandomWord, sendFrameToBackend, submitScore, startSession, endSession, checkSession, heartbeat } from "./api/gameApi";
 
 // Define the game duration in seconds.
 const GAME_DURATION = 45; // seconds for the whole match
@@ -21,28 +21,7 @@ function App() {
   const [choices, setChoices] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
   const audioRef = useRef(new Audio(bgMusic));
-
-  // Audio setup
-  useEffect(() => {
-    const audio = audioRef.current;
-    audio.loop = true;
-    audio.volume = 0.5;
-
-    const handleStart = () => {
-      audio.play().catch((error) => {
-        console.log("Audio autoplay failed:", error);
-      });
-    };
-
-    // Start playing when user interacts with the page
-    document.addEventListener("click", handleStart, { once: true });
-
-    return () => {
-      audio.pause();
-      audio.currentTime = 0;
-      document.removeEventListener("click", handleStart);
-    };
-  }, []);
+  
   // store full backend response: { guess, result, response }
   const [aiResponse, setAiResponse] = useState(null);
   const [aiResponseKey, setAiResponseKey] = useState(0);
@@ -56,6 +35,68 @@ function App() {
   const lastSentTime = useRef(0);
   const nextCaptureDelay = useRef(10000); // Dynamic delay based on API response time
   const isFetchingWord = useRef(false); // Prevent duplicate word fetches
+  const [sessionId, setSessionId] = useState(null);
+  const [sessionError, setSessionError] = useState("");
+  const heartbeatIntervalRef = useRef(null);
+
+  // Audio control based on game state
+  useEffect(() => {
+    const audio = audioRef.current;
+    audio.loop = true;
+    audio.volume = 0.5;
+
+    if (gameState === "playing" || gameState === "intro") {
+      audio.play().catch((error) => {
+        console.log("Audio autoplay failed:", error);
+      });
+    } else {
+      audio.pause();
+    }
+
+    return () => {
+      audio.pause();
+    };
+  }, [gameState]);
+  
+  // Cleanup session on browser close/refresh
+  useEffect(() => {
+    const handleBeforeUnload = async (e) => {
+      if (sessionId) {
+        // Use sendBeacon for reliable cleanup on page unload
+        const formData = new FormData();
+        formData.append("session_id", sessionId);
+        navigator.sendBeacon("http://localhost:8000/end_session", formData);
+      }
+    };
+    
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [sessionId]);
+  
+  // Heartbeat to keep session alive
+  useEffect(() => {
+    if (sessionId && (gameState === "playing" || gameState === "intro")) {
+      // Send heartbeat every 20 seconds (session timeout is 60s)
+      heartbeatIntervalRef.current = setInterval(async () => {
+        try {
+          await heartbeat(sessionId);
+          console.log("❤️ Heartbeat sent");
+        } catch (error) {
+          console.error("Heartbeat failed:", error);
+        }
+      }, 20000);
+      
+      return () => {
+        if (heartbeatIntervalRef.current) {
+          clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+        }
+      };
+    }
+  }, [sessionId, gameState]);
 
   // When AI returns a guess, show an overlay for correct/incorrect.
   // If correct, increment score and immediately fetch a new word so player can continue.
@@ -129,6 +170,12 @@ function App() {
 
   const handleStartGame = async () => {
     try {
+      // Try to acquire session first
+      setSessionError("");
+      const sessionData = await startSession();
+      setSessionId(sessionData.session_id);
+      console.log("✅ Session acquired:", sessionData.session_id);
+      
       const data = await getRandomWord();
       setCurrentWord(data.word);
       setChoices(data.choices);
@@ -140,10 +187,25 @@ function App() {
       // bump start key anyway so timer components stay deterministic
       setGameStartKey((k) => k + 1);
     } catch (error) {
-      console.error("Error fetching word:", error);
+      console.error("Error starting game:", error);
+      if (error.response?.status === 409) {
+        setSessionError("Someone is already playing. Please wait and try again.");
+        alert("Someone is already playing. Please wait and try again.");
+      } else {
+        console.error("Error fetching word:", error);
+      }
     }
   };
-  const handleBackToStart = () => {
+  const handleBackToStart = async () => {
+    if (sessionId) {
+      try {
+        await endSession(sessionId);
+        console.log("✅ Session released");
+      } catch (error) {
+        console.error("Error ending session:", error);
+      }
+      setSessionId(null);
+    }
     setGameState("start");
   };
 
@@ -155,7 +217,16 @@ function App() {
     setGameState("playing");
   };
 
-  const handlePlayAgain = () => {
+  const handlePlayAgain = async () => {
+    if (sessionId) {
+      try {
+        await endSession(sessionId);
+        console.log("✅ Session released");
+      } catch (error) {
+        console.error("Error ending session:", error);
+      }
+      setSessionId(null);
+    }
     setGameState("start");
   };
 
@@ -209,7 +280,16 @@ function App() {
     }
   }, []);
 
-  const handleQuitGame = () => {
+  const handleQuitGame = async () => {
+    if (sessionId) {
+      try {
+        await endSession(sessionId);
+        console.log("✅ Session released");
+      } catch (error) {
+        console.error("Error ending session:", error);
+      }
+      setSessionId(null);
+    }
     setGameState("start");
     setCurrentWord("");
     setChoices([]);
@@ -217,8 +297,17 @@ function App() {
   };
 
   // --- Timer expiration ---
-  const handleTimeUp = () => {
+  const handleTimeUp = async () => {
     // End the overall game when the global timer finishes
+    if (sessionId) {
+      try {
+        await endSession(sessionId);
+        console.log("✅ Session released on timeout");
+      } catch (error) {
+        console.error("Error ending session:", error);
+      }
+      setSessionId(null);
+    }
     setGameState("end");
   };
 
