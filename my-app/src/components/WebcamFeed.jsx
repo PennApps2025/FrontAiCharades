@@ -18,7 +18,9 @@ const WebcamFeed = memo(({ onCapture, paused = false }) => {
 
     (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
         streamRef = stream;
         if (!mounted) return;
         if (videoRef.current) videoRef.current.srcObject = stream;
@@ -33,7 +35,9 @@ const WebcamFeed = memo(({ onCapture, paused = false }) => {
         videoRef.current.srcObject.getTracks().forEach((track) => track.stop());
       }
       if (streamRef) {
-        try { streamRef.getTracks().forEach((t) => t.stop()); } catch (e) {}
+        try {
+          streamRef.getTracks().forEach((t) => t.stop());
+        } catch (e) {}
       }
     };
   }, []); // mount only once
@@ -59,7 +63,7 @@ const WebcamFeed = memo(({ onCapture, paused = false }) => {
           if (blob) onCapture(blob);
         }, "image/jpeg");
       }
-    }, 4000);
+    }, 10000);
 
     return () => {
       if (intervalId) clearInterval(intervalId);

@@ -29,18 +29,18 @@ function App() {
     audio.volume = 0.5;
 
     const handleStart = () => {
-      audio.play().catch(error => {
+      audio.play().catch((error) => {
         console.log("Audio autoplay failed:", error);
       });
     };
 
     // Start playing when user interacts with the page
-    document.addEventListener('click', handleStart, { once: true });
+    document.addEventListener("click", handleStart, { once: true });
 
     return () => {
       audio.pause();
       audio.currentTime = 0;
-      document.removeEventListener('click', handleStart);
+      document.removeEventListener("click", handleStart);
     };
   }, []);
   // store full backend response: { guess, result, response }
@@ -54,6 +54,8 @@ function App() {
   const [displayedGuess, setDisplayedGuess] = useState("");
   const overlayTimeoutRef = useRef(null);
   const lastSentTime = useRef(0);
+  const nextCaptureDelay = useRef(10000); // Dynamic delay based on API response time
+  const isFetchingWord = useRef(false); // Prevent duplicate word fetches
 
   // When AI returns a guess, show an overlay for correct/incorrect.
   // If correct, increment score and immediately fetch a new word so player can continue.
@@ -83,15 +85,20 @@ function App() {
 
       if (isSuccess) {
         setScore((s) => s + 1);
-        (async () => {
-          try {
-            const data = await getRandomWord();
-            setCurrentWord(data.word);
-            setChoices(data.choices);
-          } catch (e) {
-            console.error("prefetch next word failed", e);
-          }
-        })();
+        if (!isFetchingWord.current) {
+          isFetchingWord.current = true;
+          (async () => {
+            try {
+              const data = await getRandomWord();
+              setCurrentWord(data.word);
+              setChoices(data.choices);
+            } catch (e) {
+              console.error("prefetch next word failed", e);
+            } finally {
+              isFetchingWord.current = false;
+            }
+          })();
+        }
       }
       // bump key so countdown timers listening to resetSignal can restart
       setAiResponseKey((k) => k + 1);
@@ -144,7 +151,6 @@ function App() {
     setGameState("leaderboard");
   };
 
-
   const handleIntroComplete = () => {
     setGameState("playing");
   };
@@ -157,21 +163,40 @@ function App() {
     async (imageBlob) => {
       if (!imageBlob) return;
 
-    const now = Date.now();
-    if (now - lastSentTime.current < 2800) {
-      return;
-    }
-    lastSentTime.current = now;
+      const now = Date.now();
+      const minDelay = nextCaptureDelay.current;
+      if (now - lastSentTime.current < minDelay) {
+        return;
+      }
+      lastSentTime.current = now;
 
-    try {
-      const data = await sendFrameToBackend(imageBlob, currentWord, choices);
-      // store the full response object
-      setAiResponse(data);
-      setAttempts(prev => prev + 1);
-    } catch (error) {
-      console.error("Error sending frame to backend:", error);
-    }
-  }, [currentWord, choices]);
+      try {
+        const apiStartTime = Date.now();
+        const data = await sendFrameToBackend(imageBlob, currentWord, choices);
+        const apiResponseTime = Date.now() - apiStartTime;
+
+        // Dynamic adjustment: aim for ~5 captures per 45s game
+        // If API takes 2s, next capture in 7s (2s + 7s = 9s cycle)
+        // If API takes 4s, next capture in 5s (4s + 5s = 9s cycle)
+        const targetCycle = 9000; // Target 9s per cycle = 5 captures in 45s
+        const nextDelay = Math.max(
+          5000,
+          Math.min(10000, targetCycle - apiResponseTime)
+        );
+        nextCaptureDelay.current = nextDelay;
+
+        console.log(`API: ${apiResponseTime}ms, Next capture: ${nextDelay}ms`);
+
+        // store the full response object
+        setAiResponse(data);
+        setAttempts((prev) => prev + 1);
+      } catch (error) {
+        console.error("Error sending frame to backend:", error);
+        nextCaptureDelay.current = 10000; // Reset to default on error
+      }
+    },
+    [currentWord, choices]
+  );
 
   const handleSkipWord = useCallback(async () => {
     try {
@@ -208,7 +233,7 @@ function App() {
 
   return (
     <div className="App-container">
-      <button 
+      <button
         className="sound-toggle"
         onClick={toggleMute}
         aria-label={isMuted ? "Unmute" : "Mute"}
@@ -217,11 +242,14 @@ function App() {
       </button>
       {gameState === "start" && <h1>AI Charades</h1>}
 
-      {gameState === "start" && <StartScreen onStartGame={handleStartGame} onShowLeaderboard={handleShowLeaderboard} />}
-
-      {gameState === "intro" && (
-        <RoundIntro onComplete={handleIntroComplete} />
+      {gameState === "start" && (
+        <StartScreen
+          onStartGame={handleStartGame}
+          onShowLeaderboard={handleShowLeaderboard}
+        />
       )}
+
+      {gameState === "intro" && <RoundIntro onComplete={handleIntroComplete} />}
 
       {gameState === "playing" && (
         <GameScreen
@@ -241,7 +269,7 @@ function App() {
       {gameState === "end" && (
         <EndScreen
           score={score}
-          totalRounds={attempts} 
+          totalRounds={attempts}
           onRestart={handleStartGame}
           onBackToStart={handleBackToStart}
           onShowLeaderboard={handleShowLeaderboard}

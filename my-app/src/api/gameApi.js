@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // const BASE_URL = "https://backaicharades-q7oy.onrender.com"
-const BASE_URL = "http://localhost:8000"
+const BASE_URL = "http://localhost:8000";
 
 // GET random word
 export const getRandomWord = async (category = null) => {
@@ -29,7 +29,7 @@ export const submitScore = async (username, score) => {
   try {
     const response = await axios.post(BASE_URL + "/leaderboard", {
       username,
-      score
+      score,
     });
     return response.data;
   } catch (error) {

@@ -25,7 +25,7 @@ const GameScreen = ({
   resetSignal = null,
   score = 0,
 }) => {
-  const CAPTURE_INTERVAL = 3; // seconds
+  const CAPTURE_INTERVAL = 10; // seconds - matches WebcamFeed interval
 
   return (
     <div className={"game-screen" + (isTransitioning ? " transitioning" : "")}>
