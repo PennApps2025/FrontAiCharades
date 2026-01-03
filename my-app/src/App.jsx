@@ -10,7 +10,15 @@ import EndScreen from "./components/EndScreen";
 import RoundIntro from "./components/RoundIntro";
 import Leaderboard from "./components/Leaderboard";
 
-import { getRandomWord, sendFrameToBackend, submitScore, startSession, endSession, checkSession, heartbeat } from "./api/gameApi";
+import {
+  getRandomWord,
+  sendFrameToBackend,
+  submitScore,
+  startSession,
+  endSession,
+  checkSession,
+  heartbeat,
+} from "./api/gameApi";
 
 // Define the game duration in seconds.
 const GAME_DURATION = 45; // seconds for the whole match
@@ -21,7 +29,7 @@ function App() {
   const [choices, setChoices] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
   const audioRef = useRef(new Audio(bgMusic));
-  
+
   // store full backend response: { guess, result, response }
   const [aiResponse, setAiResponse] = useState(null);
   const [aiResponseKey, setAiResponseKey] = useState(0);
@@ -57,7 +65,7 @@ function App() {
       audio.pause();
     };
   }, [gameState]);
-  
+
   // Cleanup session on browser close/refresh
   useEffect(() => {
     const handleBeforeUnload = async (e) => {
@@ -68,14 +76,14 @@ function App() {
         navigator.sendBeacon("http://localhost:8000/end_session", formData);
       }
     };
-    
+
     window.addEventListener("beforeunload", handleBeforeUnload);
-    
+
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [sessionId]);
-  
+
   // Heartbeat to keep session alive
   useEffect(() => {
     if (sessionId && (gameState === "playing" || gameState === "intro")) {
@@ -88,7 +96,7 @@ function App() {
           console.error("Heartbeat failed:", error);
         }
       }, 20000);
-      
+
       return () => {
         if (heartbeatIntervalRef.current) {
           clearInterval(heartbeatIntervalRef.current);
@@ -175,7 +183,7 @@ function App() {
       const sessionData = await startSession();
       setSessionId(sessionData.session_id);
       console.log("✅ Session acquired:", sessionData.session_id);
-      
+
       const data = await getRandomWord();
       setCurrentWord(data.word);
       setChoices(data.choices);
@@ -189,7 +197,9 @@ function App() {
     } catch (error) {
       console.error("Error starting game:", error);
       if (error.response?.status === 409) {
-        setSessionError("Someone is already playing. Please wait and try again.");
+        setSessionError(
+          "Someone is already playing. Please wait and try again."
+        );
         alert("Someone is already playing. Please wait and try again.");
       } else {
         console.error("Error fetching word:", error);
@@ -263,10 +273,31 @@ function App() {
         setAttempts((prev) => prev + 1);
       } catch (error) {
         console.error("Error sending frame to backend:", error);
+        
+        // Check if it's a quota exceeded error
+        if (error.response?.status === 429) {
+          const message = error.response?.data?.detail || 
+            "Thanks for playing! 🎮 This demo has a daily limit to keep it free for everyone. We've reached today's limit, but you can try again tomorrow! See you then! ⏰";
+          
+          alert(message);
+          
+          // End session and return to start
+          if (sessionId) {
+            try {
+              await endSession(sessionId);
+              console.log("✅ Session released due to quota");
+            } catch (e) {
+              console.error("Error ending session:", e);
+            }
+            setSessionId(null);
+          }
+          setGameState("start");
+        }
+        
         nextCaptureDelay.current = 10000; // Reset to default on error
       }
     },
-    [currentWord, choices]
+    [currentWord, choices, sessionId]
   );
 
   const handleSkipWord = useCallback(async () => {
