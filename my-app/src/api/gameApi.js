@@ -52,28 +52,3 @@ export const getLeaderboard = async () => {
     throw error;
   }
 };
-
-// Session management
-export const startSession = async () => {
-  const response = await axios.post(BASE_URL + "/start_session");
-  return response.data; // { session_id, expires_at }
-};
-
-export const endSession = async (sessionId) => {
-  const formData = new FormData();
-  formData.append("session_id", sessionId);
-  const response = await axios.post(BASE_URL + "/end_session", formData);
-  return response.data;
-};
-
-export const checkSession = async () => {
-  const response = await axios.get(BASE_URL + "/check_session");
-  return response.data; // { active: true/false }
-};
-
-export const heartbeat = async (sessionId) => {
-  const formData = new FormData();
-  formData.append("session_id", sessionId);
-  const response = await axios.post(BASE_URL + "/heartbeat", formData);
-  return response.data;
-};

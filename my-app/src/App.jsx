@@ -10,15 +10,7 @@ import EndScreen from "./components/EndScreen";
 import RoundIntro from "./components/RoundIntro";
 import Leaderboard from "./components/Leaderboard";
 
-import {
-  getRandomWord,
-  sendFrameToBackend,
-  submitScore,
-  startSession,
-  endSession,
-  checkSession,
-  heartbeat,
-} from "./api/gameApi";
+import { getRandomWord, sendFrameToBackend, submitScore } from "./api/gameApi";
 
 // Define the game duration in seconds.
 const GAME_DURATION = 45; // seconds for the whole match
@@ -43,9 +35,6 @@ function App() {
   const lastSentTime = useRef(0);
   const nextCaptureDelay = useRef(10000); // Dynamic delay based on API response time
   const isFetchingWord = useRef(false); // Prevent duplicate word fetches
-  const [sessionId, setSessionId] = useState(null);
-  const [sessionError, setSessionError] = useState("");
-  const heartbeatIntervalRef = useRef(null);
 
   // Audio control based on game state
   useEffect(() => {
@@ -65,47 +54,6 @@ function App() {
       audio.pause();
     };
   }, [gameState]);
-
-  // Cleanup session on browser close/refresh
-  useEffect(() => {
-    const handleBeforeUnload = async (e) => {
-      if (sessionId) {
-        // Use sendBeacon for reliable cleanup on page unload
-        const formData = new FormData();
-        formData.append("session_id", sessionId);
-        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-        navigator.sendBeacon(`${apiUrl}/end_session`, formData);
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [sessionId]);
-
-  // Heartbeat to keep session alive
-  useEffect(() => {
-    if (sessionId && (gameState === "playing" || gameState === "intro")) {
-      // Send heartbeat every 20 seconds (session timeout is 60s)
-      heartbeatIntervalRef.current = setInterval(async () => {
-        try {
-          await heartbeat(sessionId);
-          console.log("❤️ Heartbeat sent");
-        } catch (error) {
-          console.error("Heartbeat failed:", error);
-        }
-      }, 20000);
-
-      return () => {
-        if (heartbeatIntervalRef.current) {
-          clearInterval(heartbeatIntervalRef.current);
-          heartbeatIntervalRef.current = null;
-        }
-      };
-    }
-  }, [sessionId, gameState]);
 
   // When AI returns a guess, show an overlay for correct/incorrect.
   // If correct, increment score and immediately fetch a new word so player can continue.
@@ -179,12 +127,6 @@ function App() {
 
   const handleStartGame = async () => {
     try {
-      // Try to acquire session first
-      setSessionError("");
-      const sessionData = await startSession();
-      setSessionId(sessionData.session_id);
-      console.log("✅ Session acquired:", sessionData.session_id);
-
       const data = await getRandomWord();
       setCurrentWord(data.word);
       setChoices(data.choices);
@@ -197,26 +139,10 @@ function App() {
       setGameStartKey((k) => k + 1);
     } catch (error) {
       console.error("Error starting game:", error);
-      if (error.response?.status === 409) {
-        setSessionError(
-          "Someone is already playing. Please wait and try again."
-        );
-        alert("Someone is already playing. Please wait and try again.");
-      } else {
-        console.error("Error fetching word:", error);
-      }
     }
   };
-  const handleBackToStart = async () => {
-    if (sessionId) {
-      try {
-        await endSession(sessionId);
-        console.log("✅ Session released");
-      } catch (error) {
-        console.error("Error ending session:", error);
-      }
-      setSessionId(null);
-    }
+
+  const handleBackToStart = () => {
     setGameState("start");
   };
 
@@ -228,16 +154,7 @@ function App() {
     setGameState("playing");
   };
 
-  const handlePlayAgain = async () => {
-    if (sessionId) {
-      try {
-        await endSession(sessionId);
-        console.log("✅ Session released");
-      } catch (error) {
-        console.error("Error ending session:", error);
-      }
-      setSessionId(null);
-    }
+  const handlePlayAgain = () => {
     setGameState("start");
   };
 
@@ -274,31 +191,21 @@ function App() {
         setAttempts((prev) => prev + 1);
       } catch (error) {
         console.error("Error sending frame to backend:", error);
-        
+
         // Check if it's a quota exceeded error
         if (error.response?.status === 429) {
-          const message = error.response?.data?.detail || 
+          const message =
+            error.response?.data?.detail ||
             "Thanks for playing! 🎮 This demo has a daily limit to keep it free for everyone. We've reached today's limit, but you can try again tomorrow! See you then! ⏰";
-          
+
           alert(message);
-          
-          // End session and return to start
-          if (sessionId) {
-            try {
-              await endSession(sessionId);
-              console.log("✅ Session released due to quota");
-            } catch (e) {
-              console.error("Error ending session:", e);
-            }
-            setSessionId(null);
-          }
           setGameState("start");
         }
-        
+
         nextCaptureDelay.current = 10000; // Reset to default on error
       }
     },
-    [currentWord, choices, sessionId]
+    [currentWord, choices]
   );
 
   const handleSkipWord = useCallback(async () => {
@@ -312,16 +219,7 @@ function App() {
     }
   }, []);
 
-  const handleQuitGame = async () => {
-    if (sessionId) {
-      try {
-        await endSession(sessionId);
-        console.log("✅ Session released");
-      } catch (error) {
-        console.error("Error ending session:", error);
-      }
-      setSessionId(null);
-    }
+  const handleQuitGame = () => {
     setGameState("start");
     setCurrentWord("");
     setChoices([]);
@@ -329,17 +227,8 @@ function App() {
   };
 
   // --- Timer expiration ---
-  const handleTimeUp = async () => {
+  const handleTimeUp = () => {
     // End the overall game when the global timer finishes
-    if (sessionId) {
-      try {
-        await endSession(sessionId);
-        console.log("✅ Session released on timeout");
-      } catch (error) {
-        console.error("Error ending session:", error);
-      }
-      setSessionId(null);
-    }
     setGameState("end");
   };
 
